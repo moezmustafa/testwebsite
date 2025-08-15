@@ -51,21 +51,14 @@
     .peekCard .btn{border:2px solid var(--ui); border-radius:10px; padding:6px 10px; color:var(--ink); text-decoration:none}
 
     /* Mobile controls */
-    #controls{position:fixed; inset:auto 0 0 0; padding:22px; padding-bottom:calc(22px + env(safe-area-inset-bottom)); display:flex; justify-content:space-between; align-items:flex-end; gap:18px; pointer-events:none; z-index:55}
-    .pad, .buttons{pointer-events:auto}
-    .pad{width:220px; height:220px; position:relative; opacity:.92}
-    .pad button{position:absolute; width:92px; height:92px; border-radius:16px; border:2px solid var(--ui); background:rgba(255,255,255,.08); color:var(--ink); font-weight:800}
-    .pad .up{top:0; left:50%; transform:translateX(-50%)}
-    .pad .down{bottom:0; left:50%; transform:translateX(-50%)}
-    .pad .left{left:0; top:50%; transform:translateY(-50%)}
-    .pad .right{right:0; top:50%; transform:translateY(-50%)}
-    .buttons{display:grid; gap:12px; grid-template-columns:repeat(2,108px)}
-    .buttons button{height:108px; border-radius:50%; border:2px solid var(--ui); background:rgba(255,255,255,.08); color:var(--ink); font-weight:900}
-    .small-row{display:flex; align-items:center; gap:10px; margin-top:10px}
-    .small-row button{height:50px; width:124px; border-radius:999px; border:2px solid var(--ui); background:rgba(255,255,255,.08); color:var(--ink)}
+    #controls{position:fixed; inset:0; pointer-events:none; z-index:55}
+    /* Invisible movement zone: touch left/right half to move */
+    #movePad{position:absolute; left:0; bottom:0; width:70vw; height:45vh; pointer-events:auto; touch-action:none;}
+    /* Single jump button */
+    #jumpBtn{position:absolute; right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); width:104px; height:104px; border-radius:50%; border:2px solid var(--ui); background:rgba(255,255,255,.08); color:var(--ink); font-weight:900; pointer-events:auto}
     @media (hover:hover) and (pointer:fine){ #controls{display:none} }
-    @media (orientation:portrait){ #hud{align-items:flex-start} .pad{width:240px;height:240px} .buttons{grid-template-columns:repeat(2,120px)} .buttons button{height:120px} }
-    @media (orientation:landscape){ #controls{padding:14px} .pad{width:180px;height:180px} .buttons button{height:92px} }
+    @media (orientation:portrait){ #jumpBtn{width:112px;height:112px} }
+    @media (orientation:landscape){ #jumpBtn{width:96px;height:96px} }
 
     /* Panel */
     #panel{position:fixed; inset:0; display:none; place-items:center; background:rgba(12,16,40,.78); z-index:80}
@@ -108,7 +101,12 @@
   <div id="scan"></div>
 
   <div id="hud">
-    <div class="tag">← → move · A (Z/Space) jump · B (X/E) open portal · Enter pause · M mute</div>
+    <div class="tag">tap left/right to move · JUMP (Z/Space) to jump · portals auto-open · Enter pause · M mute</div>
+    <div class="right">
+      <div class="tag" id="muteTag">🔊</div>
+      <div class="tag">ORION‑BOY</div>
+    </div>
+  </div>
     <div class="right">
       <div class="tag" id="muteTag">🔊</div>
       <div class="tag">ORION‑BOY</div>
@@ -119,22 +117,8 @@
 
   <!-- Mobile controls -->
   <div id="controls">
-    <div class="pad">
-      <button class="left" data-k="ArrowLeft">◀</button>
-      <button class="right" data-k="ArrowRight">▶</button>
-      <button class="up" data-k="ArrowUp">▲</button>
-      <button class="down" data-k="ArrowDown">▼</button>
-    </div>
-    <div>
-      <div class="buttons">
-        <button data-k="KeyZ" title="A / Jump">A</button>
-        <button data-k="KeyX" title="B / Interact">B</button>
-      </div>
-      <div class="small-row">
-        <button data-k="Enter" style="width:124px">START</button>
-        <button id="muteBtn" style="width:124px">MUTE</button>
-      </div>
-    </div>
+    <div id="movePad" aria-label="touch left/right to move"></div>
+    <button id="jumpBtn" data-k="KeyZ" title="Jump">JUMP</button>
   </div>
 
   <!-- Content panel -->
@@ -290,6 +274,26 @@
   const controlsEl = document.getElementById('controls');
   const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints>0);
   controlsEl.style.display = isTouch ? 'flex' : 'none';
+
+  // Touch move pad: left/right halves move
+  const movePad = document.getElementById('movePad');
+  if(movePad){
+    const setDir=(x,active)=>{
+      if(!active){ S.keys['ArrowLeft']=false; S.keys['ArrowRight']=false; return; }
+      const mid = innerWidth*0.5;
+      if(x < mid){ S.keys['ArrowLeft']=true; S.keys['ArrowRight']=false; }
+      else { S.keys['ArrowRight']=true; S.keys['ArrowLeft']=false; }
+    };
+    // touch
+    movePad.addEventListener('touchstart', e=>{ e.preventDefault(); if(e.touches[0]) setDir(e.touches[0].clientX,true); hideHintNow(); }, {passive:false});
+    movePad.addEventListener('touchmove', e=>{ e.preventDefault(); if(e.touches[0]) setDir(e.touches[0].clientX,true); }, {passive:false});
+    movePad.addEventListener('touchend', ()=> setDir(0,false), {passive:false});
+    // mouse (desktop debug)
+    let dragging=false;
+    movePad.addEventListener('mousedown', e=>{ dragging=true; setDir(e.clientX,true); hideHintNow(); });
+    window.addEventListener('mousemove', e=>{ if(dragging) setDir(e.clientX,true); });
+    window.addEventListener('mouseup', ()=>{ dragging=false; setDir(0,false); });
+  }
 
   // ===== World =====
   let solids, clouds, birds, petals, particles, coins, enemies, portals, mover, camera, player, buddy, castle; let groundY=0, worldWidth=0;
@@ -500,7 +504,7 @@
   // ===== Pause / Panel / Mute & Hint =====
   function togglePause(){ S.paused=!S.paused; document.getElementById('hint').classList.add('hide'); Tone(200,.05); }
   function toggleMute(){ muted=!muted; document.getElementById('muteTag').textContent = muted?'🔈':'🔊'; }
-  document.getElementById('muteBtn').addEventListener('click', toggleMute);
+  const _mb=document.getElementById('muteBtn'); if(_mb) _mb.addEventListener('click', toggleMute);
 
   const panel=document.getElementById('panel'); const panelBody=document.getElementById('panelBody'); const panelTitle=document.getElementById('panelTitle');
   const openPanel=(title,tplId)=>{ panelTitle.textContent=title; panelBody.innerHTML=''; const tpl=document.getElementById(tplId); if(tpl) panelBody.appendChild(tpl.content.cloneNode(true)); panel.classList.add('active'); S.paused=true; document.getElementById('hint').classList.add('hide'); hidePeek(); };
